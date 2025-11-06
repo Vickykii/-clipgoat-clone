@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "baseUrl": "./src",
+    "paths": {
+      "@/*": ["*"],
+      "@/env": ["env"],
+      "@/utils/*": ["utils/*"],
+      "@/processors/*": ["processors/*"]
+    }
+  },
+  "include": ["src"]
+}

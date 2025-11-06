@@ -1,0 +1,311 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkspacePlan {
+  free
+  pro
+}
+
+enum Role {
+  owner
+  admin
+  editor
+  viewer
+}
+
+enum ProjectSourceType {
+  youtube
+  upload
+}
+
+enum ProjectStatus {
+  pending
+  processing
+  ready
+  failed
+}
+
+enum TaskStatus {
+  pending
+  queued
+  processing
+  completed
+  failed
+}
+
+enum AssetType {
+  video
+  audio
+  image
+  subtitle
+  json
+}
+
+enum AspectRatio {
+  _9_16
+  _16_9
+  _1_1
+}
+
+enum RenderJobType {
+  render
+  thumb
+  subtitle_only
+}
+
+enum RenderStatus {
+  queued
+  processing
+  completed
+  failed
+}
+
+enum UsageEventType {
+  transcribe
+  render
+  min
+}
+
+enum PublishProvider {
+  youtube
+  tiktok
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  memberships   Membership[]
+  ownedWorkspaces Workspace[] @relation("WorkspaceOwner")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Workspace {
+  id        String       @id @default(cuid())
+  name      String
+  ownerId   String
+  plan      WorkspacePlan @default(free)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  memberships Membership[]
+  projects   Project[]
+  brandKit   BrandKit?
+  integrations Integration[]
+  usageEvents UsageEvent[]
+  billing    Billing?
+  owner      User        @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+model Membership {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        Role     @default(editor)
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+}
+
+model BrandKit {
+  id             String   @id @default(cuid())
+  workspaceId    String   @unique
+  primaryColor   String
+  secondaryColor String
+  font           String
+  watermarkUrl   String?
+  captionStyle   Json
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Asset {
+  id          String    @id @default(cuid())
+  type        AssetType
+  storageKey  String   @unique
+  mimeType    String
+  sizeBytes   Int
+  width       Int?
+  height      Int?
+  durationMs  Int?
+  meta        Json?
+  createdAt   DateTime @default(now())
+  projects    Project[]
+  clipsOutput Clip[]    @relation("ClipOutputAsset")
+  clipsSrt    Clip[]    @relation("ClipSrtAsset")
+  clipsThumb  Clip[]    @relation("ClipThumbnailAsset")
+}
+
+model Project {
+  id                  String            @id @default(cuid())
+  workspaceId         String
+  title               String?
+  sourceType          ProjectSourceType
+  sourceUrl           String?
+  assetId             String?
+  durationMs          Int?
+  status              ProjectStatus     @default(pending)
+  ingestStatus        TaskStatus        @default(pending)
+  transcriptionStatus TaskStatus        @default(pending)
+  segmentStatus       TaskStatus        @default(pending)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  workspace           Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  asset               Asset?            @relation(fields: [assetId], references: [id])
+  transcription       Transcription?
+  segments            Segment[]
+  clips               Clip[]
+}
+
+model Transcription {
+  id           String   @id @default(cuid())
+  projectId    String   @unique
+  provider     String
+  providerJobId String? @unique
+  language     String
+  words        Json
+  text         String
+  status       TaskStatus
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Segment {
+  id          String   @id @default(cuid())
+  projectId   String
+  startMs     Int
+  endMs       Int
+  title       String
+  hook        String
+  aiScore     Float    @default(0)
+  reasons     Json?
+  aspectRatio String   @default("9:16")
+  captionMode String   @default("karaoke")
+  createdAt   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  clips       Clip[]
+}
+
+model Clip {
+  id               String       @id @default(cuid())
+  projectId        String
+  segmentId        String
+  aspectRatio      String       @default("9:16")
+  style            Json
+  status           RenderStatus @default(queued)
+  outputAssetId    String?
+  srtAssetId       String?
+  thumbnailAssetId String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  project          Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  segment          Segment      @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+  renderJobs       RenderJob[]
+  outputAsset      Asset?       @relation("ClipOutputAsset", fields: [outputAssetId], references: [id])
+  srtAsset         Asset?       @relation("ClipSrtAsset", fields: [srtAssetId], references: [id])
+  thumbnailAsset   Asset?       @relation("ClipThumbnailAsset", fields: [thumbnailAssetId], references: [id])
+  posts            Post[]
+}
+
+model RenderJob {
+  id         String        @id @default(cuid())
+  clipId     String
+  jobType    RenderJobType
+  status     RenderStatus  @default(queued)
+  attempts   Int           @default(0)
+  error      String?
+  queuedAt   DateTime      @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+  logs       Json?
+  clip       Clip          @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  createdAt  DateTime      @default(now())
+}
+
+model Integration {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  provider      String
+  accessToken   String?
+  refreshToken  String?
+  meta          Json?
+  createdAt     DateTime @default(now())
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Post {
+  id          String         @id @default(cuid())
+  clipId      String
+  provider    PublishProvider
+  status      TaskStatus     @default(pending)
+  scheduledAt DateTime?
+  publishedAt DateTime?
+  externalId  String?
+  error       String?
+  clip        Clip           @relation(fields: [clipId], references: [id], onDelete: Cascade)
+}
+
+model UsageEvent {
+  id          String          @id @default(cuid())
+  workspaceId String
+  type        UsageEventType
+  amount      Float
+  createdAt   DateTime        @default(now())
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Billing {
+  id                   String   @id @default(cuid())
+  workspaceId          String   @unique
+  stripeCustomerId     String?
+  stripeSubId          String?
+  plan                 WorkspacePlan @default(free)
+  renewsAt             DateTime?
+  usageMinutesThisPeriod Float  @default(0)
+  workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model WebhookEvent {
+  id        String   @id @default(cuid())
+  provider  String
+  raw       Json
+  createdAt DateTime @default(now())
+}
